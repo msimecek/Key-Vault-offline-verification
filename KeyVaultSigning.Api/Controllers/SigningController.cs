@@ -13,12 +13,13 @@ namespace KeyVaultSigning.Api.Controllers
     [Route("[controller]")]
     public class SigningController : ControllerBase
     {
-        const string keyVaultName = "";
+        const string keyVaultName = "dxsigning-proto";
         const string keyName = "testkey";
         string keyVaultUrl = $"https://{keyVaultName}.vault.azure.net/";
-        
+
+        private static JsonWebKey _key; // for method 1
         private static Uri _keyId;
-        private static RSA _rsa;
+        private static RSA _rsa; // for method 2
 
         private readonly ILogger<SigningController> _logger;
 
@@ -39,6 +40,10 @@ namespace KeyVaultSigning.Api.Controllers
                 // Storing Key ID for signing purposes.
                 _keyId = key.Id;
 
+                // Storing the JsonWebKey representation to be used with preview SDK.
+                _key = key.Key;
+
+                // Without preview SDK we build RSA from the JsonWebKey.
                 RSAParameters rsaKeyInfo = new RSAParameters();
                 rsaKeyInfo.Modulus = key.Key.N;     // N = RSA key modulus
                 rsaKeyInfo.Exponent = key.Key.E;    // E = RSA public exponent
@@ -51,7 +56,7 @@ namespace KeyVaultSigning.Api.Controllers
         [HttpPost("sign")]
         public ActionResult Sign([FromBody] string text)
         {
-            // Initialize the crypto client for our particular key with Azure credentials of this client application.
+            // Initialize the remote crypto client for our particular key with Azure credentials of this client application.
             var rsaCryptoClient = new CryptographyClient(_keyId, new DefaultAzureCredential());
 
             // Use RSA SHA-256 to sign the text.
@@ -76,52 +81,54 @@ namespace KeyVaultSigning.Api.Controllers
             {
                 return BadRequest("Only RS256 (RSA SHA-256) algorithm is expected.");
             }
-            
-            // Reusing the RSA object which contains our public key.
-            RSAPKCS1SignatureDeformatter rsaDeformatter = new RSAPKCS1SignatureDeformatter(_rsa);
-            
-            // Hash algorithm used for signing was SHA-256.
-            // There could be additional logic, which adapts to the algorithm specified in the request, but that's not the scope here.
-            rsaDeformatter.SetHashAlgorithm(HashAlgorithmName.SHA256.Name);
 
-            byte[] dataBytes = Encoding.UTF8.GetBytes(req.Data);
-            byte[] digest = null;
-            
-            // Hashing data with SHA-256.
-            using (HashAlgorithm hashAlgo = SHA256.Create())
+            //
+            // Using the preview KeyVault SDK.
+            //
+            var rsaCryptoClient = new CryptographyClient(_key);
+            VerifyResult rsaVerifyDataResult = rsaCryptoClient.VerifyData(SignatureAlgorithm.RS256, Encoding.UTF8.GetBytes(req.Data), Convert.FromBase64String(req.Signature));
+            if (rsaVerifyDataResult.IsValid)
             {
-                digest = hashAlgo.ComputeHash(dataBytes);
-                _logger.LogInformation($"Created a hash from data: {digest}.");
-            }
-
-            // Verifying if the provided signature is correct for the data hash.
-            if (rsaDeformatter.VerifySignature(digest, Convert.FromBase64String(req.Signature)))
-            {
-                _logger.LogInformation("Signature is valid.");
                 return Ok("Valid");
             }
             else
             {
-                _logger.LogInformation("Signature is invalid.");
                 return BadRequest("Invalid");
             }
 
             //
-            // Alternative method using the KeyVault SDK. This will do one more round trip to Key Vault.
+            // Alternative method without the preview SDK.
             //
-            //var _keyClient = new KeyClient(new Uri(keyVaultUrl), new DefaultAzureCredential());
-            //var key = _keyClient.GetKey(keyName).Value;
-            //var rsaCryptoClient = new CryptographyClient(key.Id, new DefaultAzureCredential());
+            //// Reusing the RSA object which contains our public key.
+            //RSAPKCS1SignatureDeformatter rsaDeformatter = new RSAPKCS1SignatureDeformatter(_rsa);
 
-            //VerifyResult rsaVerifyDataResult = rsaCryptoClient.VerifyData(SignatureAlgorithm.RS256, Encoding.UTF8.GetBytes(req.data), Convert.FromBase64String(req.signature));
-            //if (rsaVerifyDataResult.IsValid)
+            //// Hash algorithm used for signing was SHA-256.
+            //// There could be additional logic, which adapts to the algorithm specified in the request, but that's not the scope here.
+            //rsaDeformatter.SetHashAlgorithm(HashAlgorithmName.SHA256.Name);
+
+            //byte[] dataBytes = Encoding.UTF8.GetBytes(req.Data);
+            //byte[] digest = null;
+
+            //// Hashing data with SHA-256.
+            //using (HashAlgorithm hashAlgo = SHA256.Create())
             //{
+            //    digest = hashAlgo.ComputeHash(dataBytes);
+            //    _logger.LogInformation($"Created a hash from data: {digest}.");
+            //}
+
+            //// Verifying if the provided signature is correct for the data hash.
+            //if (rsaDeformatter.VerifySignature(digest, Convert.FromBase64String(req.Signature)))
+            //{
+            //    _logger.LogInformation("Signature is valid.");
             //    return Ok("Valid");
             //}
             //else
             //{
+            //    _logger.LogInformation("Signature is invalid.");
             //    return BadRequest("Invalid");
             //}
+
+
         }
 
         public record SignResponse
