@@ -13,8 +13,8 @@ namespace KeyVaultSigning.Api.Controllers
     [Route("[controller]")]
     public class SigningController : ControllerBase
     {
-        const string keyVaultName = "dxsigning-proto";
-        const string keyName = "testkey";
+        const string keyVaultName = "";
+        const string keyName = "";
         string keyVaultUrl = $"https://{keyVaultName}.vault.azure.net/";
 
         private static JsonWebKey _key; // for method 1
