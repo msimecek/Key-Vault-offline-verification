@@ -1,7 +1,10 @@
 # Key Vault offline verification
-Proof of concept demonstrating how to sign data using Azure Key Vault and .NET SDK and how to verify this signature without calling the service again.
+Proof of concept demonstrating how to sign data using Azure Key Vault (.NET SDK) and how to verify this signature locally, without calling the Key Vault service again.
 
-
+> There are two variants of this implementation:
+>
+> *  The Key Vault SDK has added the capability to provide cached `JsonWebKey`  to the `CryptographyClient` and make it work locally. It is currently available in version 4.2.0-beta.
+> * As an alternative, we provide "manual" signature verification, using `RSAPKCS1SignatureDeformatter`.
 
 ## How to use
 
